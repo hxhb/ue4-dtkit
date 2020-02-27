@@ -50,5 +50,10 @@ public class GameUpdater : ModuleRules
 				// ... add any modules that your module loads dynamically here ...
 			}
 			);
+
+        PublicDefinitions.AddRange(new string[]{
+            "WITH_LOG=1",
+            "HACK_HTTP_LOG_GETCONTENT_WARNING=1"
+        });
 	}
 }
