@@ -16,6 +16,8 @@ public:
 		int32 Size;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		FString HASH;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+		FString SavePath;
 
 	FORCEINLINE bool operator==(const FDownloadFile& Rhs)
 	{

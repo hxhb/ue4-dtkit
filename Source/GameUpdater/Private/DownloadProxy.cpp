@@ -5,9 +5,12 @@
 #include "GameUpdaterLog.h"
 
 // engine header
+#include "Misc/SecureHash.h"
 #include "Templates/SharedPointer.h"
 #include "Interfaces/IHttpRequest.h"
-
+#include "Kismet/KismetStringLibrary.h"
+#include "HAL/PlatformFilemanager.h"
+#include "HAL/IPlatformFileModule.h"
 
 #if HACK_HTTP_LOG_GETCONTENT_WARNING
 static class FHackHttpResponse* HackCurlResponse(IHttpResponse* InCurlHttpResponse);
@@ -16,37 +19,32 @@ static TArray<uint8>& GetResponseContentData(FHttpResponsePtr InHttpResponse);
 
 
 UDownloadProxy::UDownloadProxy()
-	:Super(),Status(EDownloadStatus::NotStarted),TotalDownloadedByte(0),RecentlyPauseTimeDownloadByte(0),DownloadSpeed(0)
+	:Super(),Status(EDownloadStatus::NotStarted), DownloadFileTotalSize(0),TotalDownloadedByte(0),RecentlyPauseTimeDownloadByte(0),DownloadSpeed(0)
 {
-
 }
 
-void UDownloadProxy::RequestDownload(const FDownloadFile& InDownloadFile)
+void UDownloadProxy::RequestDownload(const FString& InURL, const FString& InSavePath)
 {
-	if (!HttpRequest.IsValid())
+	if (!HttpRequest.IsValid() && Status == EDownloadStatus::NotStarted)
 	{
-		DownloadFileInfo = InDownloadFile;
-		HttpRequest = FHttpModule::Get().CreateRequest();
-		HttpRequest->OnRequestProgress().BindUObject(this, &UDownloadProxy::OnDownloadProcess, EDownloadType::Start);
-		HttpRequest->OnProcessRequestComplete().BindUObject(this, &UDownloadProxy::OnDownloadComplete);
-		HttpRequest->SetURL(DownloadFileInfo.URL);
-		HttpRequest->SetVerb(TEXT("GET"));
-		if (HttpRequest->ProcessRequest())
+		DownloadFileInfo.URL = InURL;
 		{
-			TArray<uint8>& ResponseDataArray = GetResponseContentData(HttpRequest->GetResponse());
-#if WITH_LOG
-			UE_LOG(GameUpdaterLog, Log, TEXT("ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
-#endif
-			ResponseDataArray.Reserve(DownloadFileInfo.Size + 100);
-#if WITH_LOG
-			UE_LOG(GameUpdaterLog, Log, TEXT("Reserved ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
-#endif
-			Status = EDownloadStatus::Downloading;
-#if WITH_LOG
-			UE_LOG(GameUpdaterLog, Warning, TEXT("Downloading"));
-#endif
-			TickDelegateHandle = FTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UDownloadProxy::Tick));
+			FString Path;
+			FString Name;
+			FString Extension;
+			FPaths::Split(DownloadFileInfo.URL, Path, Name, Extension);
+			DownloadFileInfo.Name = Name + TEXT(".") + Extension;
 		}
+		if (!InSavePath.IsEmpty())
+		{
+			DownloadFileInfo.SavePath = InSavePath;
+		}
+		else
+		{
+			UE_LOG(GameUpdaterLog,Warning,TEXT("RequestDownload: InSavePath is empty,default is FPaths::ProjectSavedDir()"))
+			DownloadFileInfo.SavePath = FPaths::ProjectSavedDir();
+		}
+		PreRequestHeadInfo(DownloadFileInfo);
 	}
 }
 
@@ -56,10 +54,14 @@ void UDownloadProxy::Pause()
 	{
 		HttpRequest->CancelRequest();
 		Status = EDownloadStatus::Pause;
+		DownloadSpeed = 0;
+		RecentlyPauseTimeDownloadByte = TotalDownloadedByte;
 #if WITH_LOG
-		UE_LOG(GameUpdaterLog, Warning, TEXT("Download Pause"));
+		UE_LOG(GameUpdaterLog, Warning, TEXT("Download mission is paused,downloaded size is:%d."), TotalDownloadedByte);
 #endif
 		TickDelegateHandle = FTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UDownloadProxy::Tick));
+		OnDownloadPausedDyMulitDlg.Broadcast(this);
+
 	}
 }
 
@@ -84,7 +86,7 @@ void UDownloadProxy::Resume()
 #if WITH_LOG
 			UE_LOG(GameUpdaterLog, Log, TEXT("ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
 #endif
-			ResponseDataArray.Reserve(DownloadFileInfo.Size + 100 - TotalDownloadedByte);
+			ResponseDataArray.Reserve(DownloadFileTotalSize - TotalDownloadedByte);
 #if WITH_LOG
 			UE_LOG(GameUpdaterLog, Log, TEXT("Reserved ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
 			UE_LOG(GameUpdaterLog, Log, TEXT("Resume ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
@@ -107,12 +109,26 @@ void UDownloadProxy::Cancel()
 	if (HttpRequest.IsValid())
 	{
 		HttpRequest->CancelRequest();
+		FTicker::GetCoreTicker().RemoveTicker(TickDelegateHandle);
 		Status = EDownloadStatus::Canceled;
 #if WITH_LOG
 		UE_LOG(GameUpdaterLog, Warning, TEXT("Download Cancel"));
 		OnDownloadCanceledDyMulitDlg.Broadcast(this);
 #endif
 	}
+}
+
+void UDownloadProxy::Reset()
+{
+	Cancel();
+	HttpRequest = NULL;
+	DownloadFileInfo = FDownloadFile();
+	Status = EDownloadStatus::NotStarted;
+	DownloadFileTotalSize = 0;
+	TotalDownloadedByte = 0;
+	RecentlyPauseTimeDownloadByte = 0;
+	DownloadSpeed = 0;
+	DeltaTime = 0.f;
 }
 
 bool UDownloadProxy::Tick(float delta)
@@ -128,7 +144,18 @@ int32 UDownloadProxy::GetDownloadedSize() const
 
 int32 UDownloadProxy::GetTotalSize() const
 {
-	return DownloadFileInfo.Size;
+	return DownloadFileTotalSize;
+}
+
+float UDownloadProxy::GetDownloadProgress() const
+{
+	float result=0.f;
+	if (Status == EDownloadStatus::Downloading)
+	{
+		result = (double)TotalDownloadedByte/(double)DownloadFileTotalSize;
+	}
+	
+	return result;
 }
 
 int32 UDownloadProxy::GetDownloadSpeed()const
@@ -143,6 +170,30 @@ float UDownloadProxy::GetDownloadSpeedKbs() const
 	return (float)(KbSpeed * fps);
 }
 
+bool UDownloadProxy::HashCheck(const FString& InMD5Hash, bool bInAsync)
+{
+	bool result = false;
+	if (Status == EDownloadStatus::Succeeded)
+	{
+		FString SavedFilePath = FPaths::Combine(DownloadFileInfo.SavePath, DownloadFileInfo.Name);
+		if (FPaths::FileExists(SavedFilePath))
+		{
+			FMD5Hash CalcHash = FMD5Hash::HashFile(*SavedFilePath);
+			FString CalcHashStringValue = LexToString(CalcHash);
+			result = InMD5Hash.Equals(CalcHashStringValue,ESearchCase::IgnoreCase);
+#if WITH_LOG
+			UE_LOG(GameUpdaterLog, Log, TEXT("InMD5Hash is %s,CalcedHash is %s,is equal %s"), *InMD5Hash, *CalcHashStringValue, result ? TEXT("true") : TEXT("false"));
+#endif
+			OnHashCheckedDyMulitDlg.Broadcast(this,result);
+		}
+	}
+	else
+	{
+		UE_LOG(GameUpdaterLog, Warning, TEXT("CheckFileHash:The Download Mission is not successed."));
+	}
+	return result;
+}
+
 void UDownloadProxy::OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSent, int32 byteReceive, EDownloadType RequestType)
 {
 	if (EHttpRequestStatus::Processing != RequestPtr->GetStatus())
@@ -152,10 +203,11 @@ void UDownloadProxy::OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSen
 #endif
 		return;
 	}
-#if WITH_LOG
-	UE_LOG(GameUpdaterLog, Log, TEXT("OnDownloadProcess:Request Response code is %d."), RequestPtr->GetResponse()->GetResponseCode());
-	
-#endif
+	if (EDownloadStatus::Downloading != Status)
+	{
+		return;
+	}
+
 	uint32 PaddingLength = 0;
 	unsigned char* PaddingData = NULL;
 
@@ -178,26 +230,15 @@ void UDownloadProxy::OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSen
 			break;
 		}
 	}
+
 	if (Status != EDownloadStatus::Pause && PaddingLength > 0)
 	{
-		if (FFileHelper::SaveArrayToFile(TArrayView<const uint8>(PaddingData, PaddingLength), *FPaths::Combine(FPaths::ProjectDir(), DownloadFileInfo.Name), &IFileManager::Get(), EFileWrite::FILEWRITE_Append | EFileWrite::FILEWRITE_AllowRead | EFileWrite::FILEWRITE_EvenIfReadOnly))
+		UE_LOG(GameUpdaterLog, Log, TEXT("OnDownloadProcess:PaddingLength is %d,Toltal Downloaded Byte is %d,Recently is %d."), PaddingLength,TotalDownloadedByte,RecentlyPauseTimeDownloadByte);
+		if (FFileHelper::SaveArrayToFile(TArrayView<const uint8>(PaddingData, PaddingLength),*FPaths::Combine(DownloadFileInfo.SavePath, DownloadFileInfo.Name), &IFileManager::Get(), EFileWrite::FILEWRITE_Append | EFileWrite::FILEWRITE_AllowRead | EFileWrite::FILEWRITE_EvenIfReadOnly))
 		{
 			DownloadSpeed = PaddingLength;
 			TotalDownloadedByte += PaddingLength;
-#if WITH_LOG
-			UE_LOG(GameUpdaterLog, Warning, TEXT("%s Downloading size:%d."), EDownloadType::Start == RequestType ? TEXT("START") : TEXT("RESUME"), TotalDownloadedByte);
-#endif
 		}
-	}
-
-	if (EDownloadStatus::Pause == Status)
-	{
-		RecentlyPauseTimeDownloadByte = TotalDownloadedByte;
-		DownloadSpeed = 0;
-#if WITH_LOG
-		UE_LOG(GameUpdaterLog, Warning, TEXT("Download mission is paused,downloaded size is:%d."), TotalDownloadedByte);
-#endif		
-		OnDownloadPausedDyMulitDlg.Broadcast(this);
 	}
 }
 
@@ -242,12 +283,24 @@ void UDownloadProxy::OnDownloadComplete(FHttpRequestPtr RequestPtr, FHttpRespons
 void UDownloadProxy::PreRequestHeadInfo(const FDownloadFile& InDownloadFile)
 {
 	TSharedRef<IHttpRequest> HttpHeadRequest = FHttpModule::Get().CreateRequest();
+	HttpHeadRequest->OnHeaderReceived().BindUObject(this, &UDownloadProxy::OnRequestHeadHeaderReceived);
 	HttpHeadRequest->OnProcessRequestComplete().BindUObject(this, &UDownloadProxy::OnRequestHeadComplete);
 	HttpHeadRequest->SetURL(DownloadFileInfo.URL);
 	HttpHeadRequest->SetVerb(TEXT("HEAD"));
 	if (HttpHeadRequest->ProcessRequest())
 	{
-		UE_LOG(GameUpdaterLog, Log, TEXT("Request Download file size."));
+		UE_LOG(GameUpdaterLog, Log, TEXT("Request Head."));
+	}
+}
+
+void UDownloadProxy::OnRequestHeadHeaderReceived(FHttpRequestPtr RequestPtr, const FString& InHeaderName, const FString& InNewHeaderValue)
+{
+#if WITH_LOG
+	UE_LOG(GameUpdaterLog, Log, TEXT("OnRequestHeadHeaderReceived::Header Name:%s\tHeaderValue:%s"),*InHeaderName,*InNewHeaderValue);
+#endif
+	if (InHeaderName.Equals(TEXT("Content-Length")))
+	{
+		DownloadFileTotalSize = UKismetStringLibrary::Conv_StringToInt(InNewHeaderValue);
 	}
 }
 
@@ -260,7 +313,45 @@ void UDownloadProxy::OnRequestHeadComplete(FHttpRequestPtr RequestPtr, FHttpResp
 	
 	if (bDownloadSuccessd)
 	{
-		UE_LOG(GameUpdaterLog, Log, TEXT("Head Content:%s"), *RequestPtr->GetResponse()->GetContentAsString());
+		FString SaveFilePath = FPaths::Combine(DownloadFileInfo.SavePath, DownloadFileInfo.Name);
+		if (FPaths::FileExists(SaveFilePath))
+		{
+			bool bDeleted = FPlatformFileManager::Get().GetPlatformFile().DeleteFile(*SaveFilePath);
+
+			UE_LOG(GameUpdaterLog, Warning, TEXT("OnRequestHeadComplete: Delete Exists File %s."),bDeleted?TEXT("Successfuly"):TEXT("Faild"));
+			if (!bDeleted)
+				return;
+		}
+		DoDownloadRequest(DownloadFileInfo, DownloadFileTotalSize);
+		
+	}
+#if WITH_LOG
+	UE_LOG(GameUpdaterLog, Log, TEXT("OnRequestHeadComplete: Request Head %s."),bDownloadSuccessd?TEXT("Successfuly"):TEXT("Faild.Please check URL or Network connection."));
+#endif
+}
+
+void UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, int32 InFileSize)
+{
+	HttpRequest = FHttpModule::Get().CreateRequest();
+	HttpRequest->OnRequestProgress().BindUObject(this, &UDownloadProxy::OnDownloadProcess, EDownloadType::Start);
+	HttpRequest->OnProcessRequestComplete().BindUObject(this, &UDownloadProxy::OnDownloadComplete);
+	HttpRequest->SetURL(DownloadFileInfo.URL);
+	HttpRequest->SetVerb(TEXT("GET"));
+	if (HttpRequest->ProcessRequest())
+	{
+		TArray<uint8>& ResponseDataArray = GetResponseContentData(HttpRequest->GetResponse());
+#if WITH_LOG
+		UE_LOG(GameUpdaterLog, Log, TEXT("ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
+#endif
+		ResponseDataArray.Reserve(InFileSize + 100);
+#if WITH_LOG
+		UE_LOG(GameUpdaterLog, Log, TEXT("Reserved ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
+#endif
+		Status = EDownloadStatus::Downloading;
+#if WITH_LOG
+		UE_LOG(GameUpdaterLog, Warning, TEXT("Downloading"));
+#endif
+		TickDelegateHandle = FTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UDownloadProxy::Tick));
 	}
 }
 
