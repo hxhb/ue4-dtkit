@@ -6,6 +6,7 @@
 #include "DownloadFile.h"
 
 // engine header
+#include "openssl/md5.h"
 #include "Http.h"
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
@@ -18,7 +19,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnDownloadComplete, UDownloadProxy
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDownloadPaused, UDownloadProxy*, Proxy);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDownloadCanceled, UDownloadProxy*, Proxy);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDownloadResumed, UDownloadProxy*, Proxy);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHashChecked, UDownloadProxy*, Proxy, bool, bMatch);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHashChecked, const UDownloadProxy*, Proxy, bool, bMatch);
 
 UENUM(BlueprintType)
 enum class EDownloadStatus:uint8
@@ -60,6 +61,8 @@ public:
 	UFUNCTION(BlueprintCallable)
 		bool Tick(float delta);
 	UFUNCTION(BlueprintCallable)
+		FDownloadFile GetDownloadedFileInfo()const;
+	UFUNCTION(BlueprintCallable)
 		int32 GetDownloadedSize()const;
 	UFUNCTION(BlueprintCallable)
 		int32 GetTotalSize()const;
@@ -71,7 +74,7 @@ public:
 	UFUNCTION(BlueprintCallable)
 		float GetDownloadSpeedKbs()const;
 	UFUNCTION(BlueprintCallable)
-		bool HashCheck(const FString& InMD5Hash,bool bInAsync);
+		bool HashCheck(const FString& InMD5Hash)const;
 
 
 public:
@@ -99,7 +102,8 @@ protected:
 private:
 	FDelegateHandle TickDelegateHandle;
 	TSharedPtr<IHttpRequest> HttpRequest;
-	FDownloadFile DownloadFileInfo;
+	FDownloadFile PassInDownloadFileInfo;
+	FDownloadFile InternalDownloadFileInfo;
 	EDownloadStatus Status;
 	int32 FileTotalSize;
 	int32 RequestContentLength;
@@ -107,4 +111,5 @@ private:
 	int32 RecentlyPauseTimeDownloadByte;
 	int32 DownloadSpeed;
 	float DeltaTime;
+	MD5_CTX Md5CTX;
 };

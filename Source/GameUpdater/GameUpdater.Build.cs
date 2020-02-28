@@ -11,6 +11,7 @@ public class GameUpdater : ModuleRules
 		PublicIncludePaths.AddRange(
 			new string[] {
 				// ... add public include paths required here ...
+
 			}
 			);
 				
@@ -26,7 +27,8 @@ public class GameUpdater : ModuleRules
 			new string[]
 			{
 				"Core",
-                "HTTP"
+                "HTTP",
+                "CS_OpenSSL"
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);

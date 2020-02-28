@@ -9,11 +9,16 @@
 #include "Containers/Queue.h"
 #include "Misc/SecureHash.h"
 #include "Misc/FileHelper.h"
+#include "Misc/CString.h"
 #include "Templates/SharedPointer.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Kismet/KismetStringLibrary.h"
 #include "HAL/PlatformFilemanager.h"
 #include "HAL/IPlatformFileModule.h"
+
+// c++ standard library
+#include <cstdio>
+#pragma warning(disable:4996)
 
 #if HACK_HTTP_LOG_GETCONTENT_WARNING
 static class FHackHttpResponse* HackCurlResponse(IHttpResponse* InCurlHttpResponse);
@@ -30,24 +35,25 @@ void UDownloadProxy::RequestDownload(const FString& InURL, const FString& InSave
 {
 	if (!HttpRequest.IsValid() && Status == EDownloadStatus::NotStarted)
 	{
-		DownloadFileInfo.URL = InURL;
+		FDownloadFile MakeDownloadFileInfo;
+		MakeDownloadFileInfo.URL = InURL;
 		{
 			FString Path;
 			FString Name;
 			FString Extension;
-			FPaths::Split(DownloadFileInfo.URL, Path, Name, Extension);
-			DownloadFileInfo.Name = Name + TEXT(".") + Extension;
+			FPaths::Split(MakeDownloadFileInfo.URL, Path, Name, Extension);
+			MakeDownloadFileInfo.Name = Name + TEXT(".") + Extension;
 		}
 		if (!InSavePath.IsEmpty())
 		{
-			DownloadFileInfo.SavePath = InSavePath;
+			MakeDownloadFileInfo.SavePath = InSavePath;
 		}
 		else
 		{
 			UE_LOG(GameUpdaterLog,Warning,TEXT("RequestDownload: InSavePath is empty,default is FPaths::ProjectSavedDir()"))
-			DownloadFileInfo.SavePath = FPaths::ProjectSavedDir();
+				MakeDownloadFileInfo.SavePath = FPaths::ProjectSavedDir();
 		}
-		PreRequestHeadInfo(DownloadFileInfo);
+		PreRequestHeadInfo(MakeDownloadFileInfo);
 	}
 }
 
@@ -78,7 +84,7 @@ void UDownloadProxy::Resume()
 		HttpRequest = FHttpModule::Get().CreateRequest();
 		HttpRequest->OnRequestProgress().BindUObject(this, &UDownloadProxy::OnDownloadProcess,EDownloadType::Resume);
 		HttpRequest->OnProcessRequestComplete().BindUObject(this, &UDownloadProxy::OnDownloadComplete);
-		HttpRequest->SetURL(DownloadFileInfo.URL);
+		HttpRequest->SetURL(InternalDownloadFileInfo.URL);
 		HttpRequest->SetVerb(TEXT("GET"));
 		FString RangeArgs = TEXT("bytes=") + FString::FromInt(TotalDownloadedByte) + TEXT("-");
 		HttpRequest->SetHeader(TEXT("Range"), RangeArgs);
@@ -125,7 +131,8 @@ void UDownloadProxy::Reset()
 {
 	Cancel();
 	HttpRequest = NULL;
-	DownloadFileInfo = FDownloadFile();
+	InternalDownloadFileInfo = FDownloadFile();
+	PassInDownloadFileInfo = FDownloadFile();
 	Status = EDownloadStatus::NotStarted;
 	FileTotalSize = 0;
 	TotalDownloadedByte = 0;
@@ -138,6 +145,19 @@ bool UDownloadProxy::Tick(float delta)
 {
 	DeltaTime = delta;
 	return true;
+}
+
+FDownloadFile UDownloadProxy::GetDownloadedFileInfo() const
+{
+	if (Status == EDownloadStatus::Succeeded)
+	{
+		return InternalDownloadFileInfo;
+	}
+	else
+	{
+		UE_LOG(GameUpdaterLog, Warning, TEXT("The Download Mission is not successed."));
+		return PassInDownloadFileInfo;
+	}
 }
 
 int32 UDownloadProxy::GetDownloadedSize() const
@@ -173,19 +193,17 @@ float UDownloadProxy::GetDownloadSpeedKbs() const
 	return (float)(KbSpeed * fps);
 }
 
-bool UDownloadProxy::HashCheck(const FString& InMD5Hash, bool bInAsync)
+bool UDownloadProxy::HashCheck(const FString& InMD5Hash)const
 {
 	bool result = false;
 	if (Status == EDownloadStatus::Succeeded)
 	{
-		FString SavedFilePath = FPaths::Combine(DownloadFileInfo.SavePath, DownloadFileInfo.Name);
+		FString SavedFilePath = FPaths::Combine(InternalDownloadFileInfo.SavePath, InternalDownloadFileInfo.Name);
 		if (FPaths::FileExists(SavedFilePath))
 		{
-			FMD5Hash CalcHash = FMD5Hash::HashFile(*SavedFilePath);
-			FString CalcHashStringValue = LexToString(CalcHash);
-			result = InMD5Hash.Equals(CalcHashStringValue,ESearchCase::IgnoreCase);
+			result = InMD5Hash.Equals(InternalDownloadFileInfo.HASH,ESearchCase::IgnoreCase);
 #if WITH_LOG
-			UE_LOG(GameUpdaterLog, Log, TEXT("InMD5Hash is %s,CalcedHash is %s,is equal %s"), *InMD5Hash, *CalcHashStringValue, result ? TEXT("true") : TEXT("false"));
+			UE_LOG(GameUpdaterLog, Log, TEXT("InMD5Hash is %s,CalcedHash is %s,is equal %s"), *InMD5Hash, *InternalDownloadFileInfo.HASH, result ? TEXT("true") : TEXT("false"));
 #endif
 			OnHashCheckedDyMulitDlg.Broadcast(this,result);
 		}
@@ -237,8 +255,9 @@ void UDownloadProxy::OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSen
 	if (Status != EDownloadStatus::Pause && PaddingLength > 0)
 	{
 		UE_LOG(GameUpdaterLog, Log, TEXT("OnDownloadProcess:PaddingLength is %d,Toltal Downloaded Byte is %d,Recently is %d."), PaddingLength,TotalDownloadedByte,RecentlyPauseTimeDownloadByte);
-		if (FFileHelper::SaveArrayToFile(TArrayView<const uint8>(PaddingData, PaddingLength),*FPaths::Combine(DownloadFileInfo.SavePath, DownloadFileInfo.Name), &IFileManager::Get(), EFileWrite::FILEWRITE_Append | EFileWrite::FILEWRITE_AllowRead | EFileWrite::FILEWRITE_EvenIfReadOnly))
+		if (FFileHelper::SaveArrayToFile(TArrayView<const uint8>(PaddingData, PaddingLength),*FPaths::Combine(InternalDownloadFileInfo.SavePath, InternalDownloadFileInfo.Name), &IFileManager::Get(), EFileWrite::FILEWRITE_Append | EFileWrite::FILEWRITE_AllowRead | EFileWrite::FILEWRITE_EvenIfReadOnly))
 		{
+			MD5_Update(&Md5CTX, PaddingData, PaddingLength);
 			DownloadSpeed = PaddingLength;
 			TotalDownloadedByte += PaddingLength;
 		}
@@ -278,6 +297,17 @@ void UDownloadProxy::OnDownloadComplete(FHttpRequestPtr RequestPtr, FHttpRespons
 #if WITH_LOG
 		UE_LOG(GameUpdaterLog, Warning, TEXT("DownloadProxy Mission %s."), bDownloadSuccessd ?TEXT("Successfuly"):TEXT("Faild"));
 #endif
+	if (bDownloadSuccessd)
+	{
+		unsigned char Digest[16] = { 0 };
+		MD5_Final(Digest, &Md5CTX);
+		ANSICHAR md5string[33];
+		for (int i = 0; i < 16; ++i)
+			std::sprintf(&md5string[i * 2], "%02x", (unsigned int)Digest[i]);
+
+		InternalDownloadFileInfo.HASH = ANSI_TO_TCHAR(md5string);
+		UE_LOG(GameUpdaterLog, Warning, TEXT("OnDownloadComplete:Hash Check result is %s"), *InternalDownloadFileInfo.HASH);
+	}
 	DownloadSpeed = 0;
 	OnDownloadCompleteDyMulitDlg.Broadcast(this, bDownloadSuccessd);
 }
@@ -285,10 +315,17 @@ void UDownloadProxy::OnDownloadComplete(FHttpRequestPtr RequestPtr, FHttpRespons
 
 void UDownloadProxy::PreRequestHeadInfo(const FDownloadFile& InDownloadFile)
 {
+	PassInDownloadFileInfo = InDownloadFile;
+	if (PassInDownloadFileInfo.SavePath.IsEmpty())
+	{
+		PassInDownloadFileInfo.SavePath = FPaths::ProjectSavedDir();
+	}
+	InternalDownloadFileInfo = PassInDownloadFileInfo;
+
 	TSharedRef<IHttpRequest> HttpHeadRequest = FHttpModule::Get().CreateRequest();
 	HttpHeadRequest->OnHeaderReceived().BindUObject(this, &UDownloadProxy::OnRequestHeadHeaderReceived);
 	HttpHeadRequest->OnProcessRequestComplete().BindUObject(this, &UDownloadProxy::OnRequestHeadComplete);
-	HttpHeadRequest->SetURL(DownloadFileInfo.URL);
+	HttpHeadRequest->SetURL(InternalDownloadFileInfo.URL);
 	HttpHeadRequest->SetVerb(TEXT("HEAD"));
 	if (HttpHeadRequest->ProcessRequest())
 	{
@@ -316,7 +353,7 @@ void UDownloadProxy::OnRequestHeadComplete(FHttpRequestPtr RequestPtr, FHttpResp
 	
 	if (bDownloadSuccessd)
 	{
-		FString SaveFilePath = FPaths::Combine(DownloadFileInfo.SavePath, DownloadFileInfo.Name);
+		FString SaveFilePath = FPaths::Combine(InternalDownloadFileInfo.SavePath, InternalDownloadFileInfo.Name);
 		if (FPaths::FileExists(SaveFilePath))
 		{
 			bool bDeleted = FPlatformFileManager::Get().GetPlatformFile().DeleteFile(*SaveFilePath);
@@ -325,7 +362,7 @@ void UDownloadProxy::OnRequestHeadComplete(FHttpRequestPtr RequestPtr, FHttpResp
 			if (!bDeleted)
 				return;
 		}
-		DoDownloadRequest(DownloadFileInfo, FileTotalSize);
+		DoDownloadRequest(InternalDownloadFileInfo, FileTotalSize);
 		
 	}
 #if WITH_LOG
@@ -335,10 +372,11 @@ void UDownloadProxy::OnRequestHeadComplete(FHttpRequestPtr RequestPtr, FHttpResp
 
 void UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, int32 InFileSize)
 {
+	MD5_Init(&Md5CTX);
 	HttpRequest = FHttpModule::Get().CreateRequest();
 	HttpRequest->OnRequestProgress().BindUObject(this, &UDownloadProxy::OnDownloadProcess, EDownloadType::Start);
 	HttpRequest->OnProcessRequestComplete().BindUObject(this, &UDownloadProxy::OnDownloadComplete);
-	HttpRequest->SetURL(DownloadFileInfo.URL);
+	HttpRequest->SetURL(InternalDownloadFileInfo.URL);
 	HttpRequest->SetVerb(TEXT("GET"));
 	if (HttpRequest->ProcessRequest())
 	{
