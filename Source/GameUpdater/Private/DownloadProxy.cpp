@@ -5,7 +5,10 @@
 #include "GameUpdaterLog.h"
 
 // engine header
+#include "Containers/Ticker.h"
+#include "Containers/Queue.h"
 #include "Misc/SecureHash.h"
+#include "Misc/FileHelper.h"
 #include "Templates/SharedPointer.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Kismet/KismetStringLibrary.h"
