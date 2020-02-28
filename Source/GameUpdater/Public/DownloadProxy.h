@@ -36,7 +36,8 @@ UENUM(BlueprintType)
 enum class EDownloadType :uint8
 {
 	Start,
-	Resume
+	Resume,
+	Slice
 };
 /**
  * 
@@ -48,8 +49,8 @@ class GAMEUPDATER_API UDownloadProxy : public UObject
 public:
 	UDownloadProxy();
 public:
-	UFUNCTION(BlueprintCallable,meta=(AdvancedDisplay="InSavePath"))
-		void RequestDownload(const FString& InURL,const FString& InSavePath = TEXT(""));
+	UFUNCTION(BlueprintCallable,meta=(AdvancedDisplay="InSavePath,bSlice"))
+		void RequestDownload(const FString& InURL,const FString& InSavePath = TEXT(""),bool bSlice=false);
 	UFUNCTION(BlueprintCallable)
 		void Pause();
 	UFUNCTION(BlueprintCallable)
@@ -90,7 +91,8 @@ public:
 		FOnHashChecked OnHashCheckedDyMulitDlg;
 protected:
 	// download file
-	void DoDownloadRequest(const FDownloadFile& InDownloadFile, int32 InFileSize);
+	void PreDownloadRequest();
+	void DoDownloadRequest(const FDownloadFile& InDownloadFile, bool bIsSlice);
 	void OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSent, int32 byteReceive, EDownloadType RequestType);
 	void OnDownloadComplete(FHttpRequestPtr RequestPtr, FHttpResponsePtr ResponsePtr, bool bConnectedSuccessfully);
 
@@ -105,11 +107,11 @@ private:
 	FDownloadFile PassInDownloadFileInfo;
 	FDownloadFile InternalDownloadFileInfo;
 	EDownloadStatus Status;
-	int32 FileTotalSize;
-	int32 RequestContentLength;
 	int32 TotalDownloadedByte;
 	int32 RecentlyPauseTimeDownloadByte;
 	int32 DownloadSpeed;
 	float DeltaTime;
 	MD5_CTX Md5CTX;
+	bool bUseSlice;
+	uint32 SliceCount;
 };
