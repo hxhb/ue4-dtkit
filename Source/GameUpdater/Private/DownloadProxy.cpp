@@ -19,7 +19,7 @@ static TArray<uint8>& GetResponseContentData(FHttpResponsePtr InHttpResponse);
 
 
 UDownloadProxy::UDownloadProxy()
-	:Super(),Status(EDownloadStatus::NotStarted), DownloadFileTotalSize(0),TotalDownloadedByte(0),RecentlyPauseTimeDownloadByte(0),DownloadSpeed(0)
+	:Super(),Status(EDownloadStatus::NotStarted), FileTotalSize(0),TotalDownloadedByte(0),RecentlyPauseTimeDownloadByte(0),DownloadSpeed(0)
 {
 }
 
@@ -86,7 +86,7 @@ void UDownloadProxy::Resume()
 #if WITH_LOG
 			UE_LOG(GameUpdaterLog, Log, TEXT("ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
 #endif
-			ResponseDataArray.Reserve(DownloadFileTotalSize - TotalDownloadedByte);
+			ResponseDataArray.Reserve(FileTotalSize - TotalDownloadedByte);
 #if WITH_LOG
 			UE_LOG(GameUpdaterLog, Log, TEXT("Reserved ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
 			UE_LOG(GameUpdaterLog, Log, TEXT("Resume ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
@@ -124,7 +124,7 @@ void UDownloadProxy::Reset()
 	HttpRequest = NULL;
 	DownloadFileInfo = FDownloadFile();
 	Status = EDownloadStatus::NotStarted;
-	DownloadFileTotalSize = 0;
+	FileTotalSize = 0;
 	TotalDownloadedByte = 0;
 	RecentlyPauseTimeDownloadByte = 0;
 	DownloadSpeed = 0;
@@ -144,7 +144,7 @@ int32 UDownloadProxy::GetDownloadedSize() const
 
 int32 UDownloadProxy::GetTotalSize() const
 {
-	return DownloadFileTotalSize;
+	return FileTotalSize;
 }
 
 float UDownloadProxy::GetDownloadProgress() const
@@ -152,7 +152,7 @@ float UDownloadProxy::GetDownloadProgress() const
 	float result=0.f;
 	if (Status == EDownloadStatus::Downloading)
 	{
-		result = (double)TotalDownloadedByte/(double)DownloadFileTotalSize;
+		result = (double)TotalDownloadedByte/(double)FileTotalSize;
 	}
 	
 	return result;
@@ -300,7 +300,7 @@ void UDownloadProxy::OnRequestHeadHeaderReceived(FHttpRequestPtr RequestPtr, con
 #endif
 	if (InHeaderName.Equals(TEXT("Content-Length")))
 	{
-		DownloadFileTotalSize = UKismetStringLibrary::Conv_StringToInt(InNewHeaderValue);
+		FileTotalSize = UKismetStringLibrary::Conv_StringToInt(InNewHeaderValue);
 	}
 }
 
@@ -322,7 +322,7 @@ void UDownloadProxy::OnRequestHeadComplete(FHttpRequestPtr RequestPtr, FHttpResp
 			if (!bDeleted)
 				return;
 		}
-		DoDownloadRequest(DownloadFileInfo, DownloadFileTotalSize);
+		DoDownloadRequest(DownloadFileInfo, FileTotalSize);
 		
 	}
 #if WITH_LOG

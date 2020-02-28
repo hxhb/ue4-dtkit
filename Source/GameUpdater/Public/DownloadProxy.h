@@ -101,7 +101,7 @@ private:
 	TSharedPtr<IHttpRequest> HttpRequest;
 	FDownloadFile DownloadFileInfo;
 	EDownloadStatus Status;
-	int32 DownloadFileTotalSize;
+	int32 FileTotalSize;
 	int32 RequestContentLength;
 	int32 TotalDownloadedByte;
 	int32 RecentlyPauseTimeDownloadByte;
