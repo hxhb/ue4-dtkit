@@ -49,8 +49,8 @@ class GAMEUPDATER_API UDownloadProxy : public UObject
 public:
 	UDownloadProxy();
 public:
-	UFUNCTION(BlueprintCallable,meta=(AdvancedDisplay="InSavePath,bSlice"))
-		void RequestDownload(const FString& InURL,const FString& InSavePath = TEXT(""),bool bSlice=false);
+	UFUNCTION(BlueprintCallable,meta=(AdvancedDisplay="InSavePath,bSlice,InSliceByteSize"))
+		void RequestDownload(const FString& InURL,const FString& InSavePath = TEXT(""),bool bSlice=false,int32 InSliceByteSize=0);
 	UFUNCTION(BlueprintCallable)
 		void Pause();
 	UFUNCTION(BlueprintCallable)
@@ -114,4 +114,5 @@ private:
 	MD5_CTX Md5CTX;
 	bool bUseSlice;
 	uint32 SliceCount;
+	int32 SliceByteSize;
 };

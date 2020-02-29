@@ -32,10 +32,16 @@ UDownloadProxy::UDownloadProxy()
 {
 }
 
-void UDownloadProxy::RequestDownload(const FString& InURL, const FString& InSavePath, bool bSlice)
+void UDownloadProxy::RequestDownload(const FString& InURL, const FString& InSavePath, bool bSlice, int32 InSliceByteSize)
 {
 	if (!HttpRequest.IsValid() && Status == EDownloadStatus::NotStarted)
 	{
+		SliceByteSize = InSliceByteSize > 0 ? InSliceByteSize : SLICE_SIZE;
+		if (bUseSlice)
+		{
+			UE_LOG(GameUpdaterLog, Log, TEXT("RequestDownload:SliceByteSize is %d."),SliceByteSize);
+		}
+
 		FDownloadFile MakeDownloadFileInfo;
 		MakeDownloadFileInfo.URL = InURL;
 		{
@@ -90,24 +96,19 @@ void UDownloadProxy::Resume()
 		HttpRequest->SetVerb(TEXT("GET"));
 		// FString RangeArgs = TEXT("bytes=") + FString::FromInt(TotalDownloadedByte) + TEXT("-");
 		FString RangeArgs;
+		FString RangeLowerArgs;
 		if (bUseSlice)
-			RangeArgs = TEXT("bytes=") + FString::FromInt(TotalDownloadedByte) + TEXT("-") + FString::FromInt(FMath::Min(InternalDownloadFileInfo.Size-1, TotalDownloadedByte + SLICE_SIZE));
-		else
-			RangeArgs = TEXT("bytes=") + FString::FromInt(TotalDownloadedByte) + TEXT("-") + FString::FromInt(InternalDownloadFileInfo.Size-1);
+			RangeLowerArgs = (TotalDownloadedByte + SliceByteSize) < InternalDownloadFileInfo.Size ? FString::FromInt(TotalDownloadedByte + SliceByteSize) : TEXT("");
+
+		RangeArgs = TEXT("bytes=") + FString::FromInt(TotalDownloadedByte) + TEXT("-")+ RangeLowerArgs;
 		HttpRequest->SetHeader(TEXT("Range"), RangeArgs);
 		if (HttpRequest->ProcessRequest())
 		{
 			TArray<uint8>& ResponseDataArray = GetResponseContentData(HttpRequest->GetResponse());
+			uint32 ReserveSize = (bUseSlice ? SliceByteSize : InternalDownloadFileInfo.Size - TotalDownloadedByte) + 100;
 
-#if WITH_LOG
-			UE_LOG(GameUpdaterLog, Log, TEXT("ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
-#endif
-			uint32 ReserveSize = (bUseSlice ? SLICE_SIZE : InternalDownloadFileInfo.Size - TotalDownloadedByte) + 100;
 			ResponseDataArray.Reserve(ReserveSize);
-#if WITH_LOG
-			UE_LOG(GameUpdaterLog, Log, TEXT("Reserved ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
-			UE_LOG(GameUpdaterLog, Log, TEXT("Resume ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
-#endif
+
 			Status = EDownloadStatus::Downloading;
 #if WITH_LOG
 			UE_LOG(GameUpdaterLog, Log, TEXT("Download Resume,Range Args:%s"),*RangeArgs);
@@ -142,6 +143,8 @@ void UDownloadProxy::Reset()
 	InternalDownloadFileInfo = FDownloadFile();
 	PassInDownloadFileInfo = FDownloadFile();
 	Status = EDownloadStatus::NotStarted;
+	SliceByteSize = 0;
+	SliceCount = 0;
 	TotalDownloadedByte = 0;
 	RecentlyPauseTimeDownloadByte = 0;
 	DownloadSpeed = 0;
@@ -258,21 +261,21 @@ void UDownloadProxy::OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSen
 		}
 		case EDownloadType::Slice:
 		{
-			uint32 CurrentSliceStartPos = TotalDownloadedByte - (SLICE_SIZE * SliceCount);
+			uint32 CurrentSliceStartPos = TotalDownloadedByte - (SliceByteSize * SliceCount);
 			PaddingLength = CurrentRequestTotalLength - CurrentSliceStartPos;
 			PaddingData = const_cast<unsigned char*>(ResponseDataArray.GetData() + CurrentSliceStartPos);
 		}
 	}
 
 	if (Status != EDownloadStatus::Pause && PaddingLength > 0)
-	{
-		UE_LOG(GameUpdaterLog, Log, TEXT("OnDownloadProcess:PaddingLength is %d,Toltal Downloaded Byte is %d,Recently is %d."), PaddingLength,TotalDownloadedByte,RecentlyPauseTimeDownloadByte);
+	{		
 		if (FFileHelper::SaveArrayToFile(TArrayView<const uint8>(PaddingData, PaddingLength),*FPaths::Combine(InternalDownloadFileInfo.SavePath, InternalDownloadFileInfo.Name), &IFileManager::Get(), EFileWrite::FILEWRITE_Append | EFileWrite::FILEWRITE_AllowRead | EFileWrite::FILEWRITE_EvenIfReadOnly))
 		{
 			MD5_Update(&Md5CTX, PaddingData, PaddingLength);
 			DownloadSpeed = PaddingLength;
 			TotalDownloadedByte += PaddingLength;
 		}
+		UE_LOG(GameUpdaterLog, Log, TEXT("OnDownloadProcess:PaddingLength is %d,Toltal Downloaded Byte is %d,Recently is %d."), PaddingLength, TotalDownloadedByte, RecentlyPauseTimeDownloadByte);
 	}
 }
 
@@ -304,8 +307,10 @@ void UDownloadProxy::OnDownloadComplete(FHttpRequestPtr RequestPtr, FHttpRespons
 			UE_LOG(GameUpdaterLog, Warning, TEXT("OnDownloadComplete:Request Response code is %d."), RequestPtr->GetResponse()->GetResponseCode());
 #endif
 	}
-	if (bUseSlice && TotalDownloadedByte < InternalDownloadFileInfo.Size)
+	UE_LOG(GameUpdaterLog, Log, TEXT("OnDownloadComplete:TotalDownloadedByte is %d,FileTotalSize is %d"), TotalDownloadedByte,InternalDownloadFileInfo.Size);
+	if (bDownloadSuccessd && bUseSlice && TotalDownloadedByte < InternalDownloadFileInfo.Size)
 	{
+		++SliceCount;
 		DoDownloadRequest(InternalDownloadFileInfo,true);
 		UE_LOG(GameUpdaterLog, Log, TEXT("Download Next Slice Content,count is %d."),SliceCount);
 		return;
@@ -364,7 +369,7 @@ void UDownloadProxy::OnRequestHeadHeaderReceived(FHttpRequestPtr RequestPtr, con
 
 void UDownloadProxy::OnRequestHeadComplete(FHttpRequestPtr RequestPtr, FHttpResponsePtr ResponsePtr, bool bConnectedSuccessfully)
 {
-
+	UE_LOG(GameUpdaterLog, Log, TEXT("OnRequestHeadComplete"));
 	bool bHttpRequestSuccessed = RequestPtr.IsValid() && RequestPtr->GetStatus() == EHttpRequestStatus::Succeeded;
 	bool bResponseSuccessd = RequestPtr.IsValid() && RequestPtr->GetResponse().IsValid() && (RequestPtr->GetResponse()->GetResponseCode() >= 200 && RequestPtr->GetResponse()->GetResponseCode() < 300);
 	bool bDownloadSuccessd = bConnectedSuccessfully && bHttpRequestSuccessed && bResponseSuccessd;
@@ -396,6 +401,8 @@ void UDownloadProxy::PreDownloadRequest()
 
 void UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile,  bool bIsSlice)
 {	
+	UE_LOG(GameUpdaterLog, Log, TEXT("DoDownloadRequest"));
+
 	HttpRequest = FHttpModule::Get().CreateRequest();
 	HttpRequest->OnRequestProgress().BindUObject(this, &UDownloadProxy::OnDownloadProcess, bIsSlice?EDownloadType::Slice:EDownloadType::Start);
 	HttpRequest->OnProcessRequestComplete().BindUObject(this, &UDownloadProxy::OnDownloadComplete);
@@ -403,10 +410,14 @@ void UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile,  boo
 	HttpRequest->SetVerb(TEXT("GET"));
 
 	FString RangeArgs;
+	FString RangeFirstArgs=TEXT("0");
+	FString RangeSecondArgs;
 	if (bUseSlice)
-		RangeArgs = TEXT("bytes=") + FString::FromInt(TotalDownloadedByte) + TEXT("-") + FString::FromInt(FMath::Min(InDownloadFile.Size-1, TotalDownloadedByte + SLICE_SIZE));
-	else
-		RangeArgs = TEXT("bytes=") + FString::FromInt(TotalDownloadedByte) + TEXT("-") + FString::FromInt(InDownloadFile.Size-1);
+	{
+		RangeFirstArgs = FString::FromInt(TotalDownloadedByte);
+		RangeSecondArgs = (TotalDownloadedByte + SliceByteSize) < InternalDownloadFileInfo.Size ? FString::FromInt(TotalDownloadedByte + SliceByteSize -1) : FString::FromInt(InternalDownloadFileInfo.Size-1);
+	}
+	RangeArgs = TEXT("bytes=") + RangeFirstArgs + TEXT("-") + RangeSecondArgs;
 
 	UE_LOG(GameUpdaterLog, Log, TEXT("DoDownloadRequest:RangeArgs is %s"), *RangeArgs);
 
@@ -414,16 +425,10 @@ void UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile,  boo
 	if (HttpRequest->ProcessRequest())
 	{
 		TArray<uint8>& ResponseDataArray = GetResponseContentData(HttpRequest->GetResponse());
-#if WITH_LOG
-		UE_LOG(GameUpdaterLog, Log, TEXT("ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
-#endif
-		uint32 ReserveSize = (bUseSlice ? SLICE_SIZE : InDownloadFile.Size) + 100;
+
+		uint32 ReserveSize = (bUseSlice ? SliceByteSize : InDownloadFile.Size) + 100;
 		ResponseDataArray.Reserve(ReserveSize);
-		if (bUseSlice)
-			++SliceCount;
-#if WITH_LOG
-		UE_LOG(GameUpdaterLog, Log, TEXT("Reserved ResponseData Array allocated memory is %d."), ResponseDataArray.GetAllocatedSize());
-#endif
+
 		Status = EDownloadStatus::Downloading;
 #if WITH_LOG
 		UE_LOG(GameUpdaterLog, Warning, TEXT("Downloading"));
