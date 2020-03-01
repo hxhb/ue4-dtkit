@@ -54,7 +54,7 @@ public class GameUpdater : ModuleRules
 			);
 
         PublicDefinitions.AddRange(new string[]{
-            "WITH_LOG=1",
+            "WITH_LOG=0",
             "HACK_HTTP_LOG_GETCONTENT_WARNING=1"
         });
 	}
