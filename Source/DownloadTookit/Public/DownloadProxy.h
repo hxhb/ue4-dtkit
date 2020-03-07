@@ -38,7 +38,7 @@ struct FDownloadRange
 };
 
 UCLASS(BlueprintType)
-class GAMEUPDATER_API UDownloadProxy : public UObject
+class DOWNLOADTOOKIT_API UDownloadProxy : public UObject
 {
 	GENERATED_BODY()
 public:

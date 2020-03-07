@@ -2,9 +2,9 @@
 
 using UnrealBuildTool;
 
-public class GameUpdater : ModuleRules
+public class DownloadTookit : ModuleRules
 {
-	public GameUpdater(ReadOnlyTargetRules Target) : base(Target)
+	public DownloadTookit(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 		

@@ -1,13 +1,13 @@
 // Copyright 1998-2019 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
-#include "GameUpdaterLog.h"
+#include "DownloadTookitLog.h"
 
 // engine header
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-class FGameUpdaterModule : public IModuleInterface
+class FDownloadTookitModule : public IModuleInterface
 {
 public:
 

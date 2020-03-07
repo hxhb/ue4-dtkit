@@ -4,7 +4,7 @@
 #include "DownloadFile.generated.h"
 
 USTRUCT(BlueprintType)
-struct FDownloadFile
+struct DOWNLOADTOOKIT_API FDownloadFile
 {
 	GENERATED_USTRUCT_BODY()
 public:

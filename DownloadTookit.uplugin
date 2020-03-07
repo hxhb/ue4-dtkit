@@ -2,7 +2,7 @@
 	"FileVersion": 3,
 	"Version": 1,
 	"VersionName": "1.0",
-	"FriendlyName": "GameUpdater",
+	"FriendlyName": "DownloadTookit",
 	"Description": "",
 	"Category": "Other",
 	"CreatedBy": "imzlp",
@@ -15,7 +15,7 @@
 	"Installed": false,
 	"Modules": [
 		{
-			"Name": "GameUpdater",
+			"Name": "DownloadTookit",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		}

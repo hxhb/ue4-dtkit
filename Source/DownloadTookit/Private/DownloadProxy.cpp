@@ -2,7 +2,7 @@
 
 
 #include "DownloadProxy.h"
-#include "GameUpdaterLog.h"
+#include "DownloadTookitLog.h"
 
 // engine header
 #include "Containers/Ticker.h"
@@ -15,10 +15,6 @@
 #include "Kismet/KismetStringLibrary.h"
 #include "HAL/PlatformFilemanager.h"
 #include "HAL/IPlatformFileModule.h"
-
-// c++ standard library
-#include <cstdio>
-#pragma warning(disable:4996)
 
 #if HACK_HTTP_LOG_GETCONTENT_WARNING
 static class FHackHttpResponse* HackCurlResponse(IHttpResponse* InCurlHttpResponse);
@@ -37,7 +33,7 @@ UDownloadProxy::UDownloadProxy()
 void UDownloadProxy::RequestDownload(const FString& InURL, const FString& InSavePathOpt, bool bInSliceOpt, int32 InSliceByteSizeOpt, bool bInForceOpt)
 {
 #if WITH_LOG
-	UE_LOG(GameUpdaterLog, Log, TEXT("RequestDownload::InURL:%s\nInSavePath:%s\nbSlice:%s\nInSliceByteSize:%d"), *InURL, *InSavePathOpt, bInSliceOpt ? TEXT("true") : TEXT("false"), InSliceByteSizeOpt);
+	UE_LOG(DownloadTookitLog, Log, TEXT("RequestDownload::InURL:%s\nInSavePath:%s\nbSlice:%s\nInSliceByteSize:%d"), *InURL, *InSavePathOpt, bInSliceOpt ? TEXT("true") : TEXT("false"), InSliceByteSizeOpt);
 #endif
 	if (bInForceOpt || ((!HttpRequest.IsValid() || HttpRequest->GetStatus() != EHttpRequestStatus::Processing) && (Status != EDownloadStatus::Downloading)))
 	{
@@ -48,7 +44,7 @@ void UDownloadProxy::RequestDownload(const FString& InURL, const FString& InSave
 		{
 			bUseSlice = bInSliceOpt;
 			SliceByteSize = InSliceByteSizeOpt > 0 ? InSliceByteSizeOpt : SLICE_SIZE;  // range:0-999 is first 1000 byte.
-			UE_LOG(GameUpdaterLog, Log, TEXT("RequestDownload:SliceByteSize is %d."),SliceByteSize);
+			UE_LOG(DownloadTookitLog, Log, TEXT("RequestDownload:SliceByteSize is %d."),SliceByteSize);
 		}
 		
 		MakeDownloadFileInfo.URL = InURL;
@@ -60,14 +56,14 @@ void UDownloadProxy::RequestDownload(const FString& InURL, const FString& InSave
 		else
 		{
 			MakeDownloadFileInfo.SavePath = FPaths::Combine(FPaths::ProjectSavedDir(),MakeDownloadFileInfo.Name);
-			UE_LOG(GameUpdaterLog, Warning, TEXT("RequestDownload: InSavePath is empty,default is %s."), *MakeDownloadFileInfo.SavePath);
+			UE_LOG(DownloadTookitLog, Warning, TEXT("RequestDownload: InSavePath is empty,default is %s."), *MakeDownloadFileInfo.SavePath);
 		}
 		
 		PreRequestHeadInfo(MakeDownloadFileInfo);
 	}
 	else
 	{
-		UE_LOG(GameUpdaterLog, Log, TEXT("RequestDownload::The Download mision is active,please cancel it and try again."));
+		UE_LOG(DownloadTookitLog, Log, TEXT("RequestDownload::The Download mision is active,please cancel it and try again."));
 	}
 }
 
@@ -80,7 +76,7 @@ void UDownloadProxy::Pause()
 		DownloadSpeed = 0;
 		LastRequestedTotalByte = TotalDownloadedByte;
 #if WITH_LOG
-		UE_LOG(GameUpdaterLog, Warning, TEXT("Download mission is paused,downloaded size is:%d."), TotalDownloadedByte);
+		UE_LOG(DownloadTookitLog, Warning, TEXT("Download mission is paused,downloaded size is:%d."), TotalDownloadedByte);
 #endif
 		TickDelegateHandle = FTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UDownloadProxy::Tick));
 		OnDownloadPausedDyMultiDlg.Broadcast(this);
@@ -108,7 +104,7 @@ bool UDownloadProxy::Resume()
 	}
 	else
 	{
-		UE_LOG(GameUpdaterLog, Error, TEXT("Download Resume Faild, becouse the download mission is not paused."));
+		UE_LOG(DownloadTookitLog, Error, TEXT("Download Resume Faild, becouse the download mission is not paused."));
 	}
 	return bResumeStatus;
 }
@@ -122,7 +118,7 @@ bool UDownloadProxy::ReDownload()
 		bStatus = true;
 	}
 
-	UE_LOG(GameUpdaterLog, Warning, TEXT("ReDwonload is %s."), bStatus ? TEXT("accept"):TEXT("not accept,because the downloadproxy is downloading"));
+	UE_LOG(DownloadTookitLog, Warning, TEXT("ReDwonload is %s."), bStatus ? TEXT("accept"):TEXT("not accept,because the downloadproxy is downloading"));
 	return bStatus;
 }
 
@@ -138,7 +134,7 @@ void UDownloadProxy::Cancel()
 		FTicker::GetCoreTicker().RemoveTicker(TickDelegateHandle);
 		Status = EDownloadStatus::Canceled;
 #if WITH_LOG
-		UE_LOG(GameUpdaterLog, Warning, TEXT("Download Cancel"));
+		UE_LOG(DownloadTookitLog, Warning, TEXT("Download Cancel"));
 #endif
 		OnDownloadCanceledDyMultiDlg.Broadcast(this);
 	}
@@ -182,7 +178,7 @@ FDownloadFile UDownloadProxy::GetDownloadedFileInfo() const
 	}
 	else
 	{
-		UE_LOG(GameUpdaterLog, Warning, TEXT("The Download Mission is not successed."));
+		UE_LOG(DownloadTookitLog, Warning, TEXT("The Download Mission is not successed."));
 		return PassInDownloadFileInfo;
 	}
 }
@@ -240,13 +236,13 @@ bool UDownloadProxy::HashCheck(const FString& InMD5Hash)const
 		{
 			result = InMD5Hash.Equals(InternalDownloadFileInfo.HASH,ESearchCase::IgnoreCase);
 #if WITH_LOG
-			UE_LOG(GameUpdaterLog, Log, TEXT("InMD5Hash is %s,CalcedHash is %s,is equal %s"), *InMD5Hash, *InternalDownloadFileInfo.HASH, result ? TEXT("true") : TEXT("false"));
+			UE_LOG(DownloadTookitLog, Log, TEXT("InMD5Hash is %s,CalcedHash is %s,is equal %s"), *InMD5Hash, *InternalDownloadFileInfo.HASH, result ? TEXT("true") : TEXT("false"));
 #endif
 		}
 	}
 	else
 	{
-		UE_LOG(GameUpdaterLog, Warning, TEXT("CheckFileHash:The Download Mission is not successed."));
+		UE_LOG(DownloadTookitLog, Warning, TEXT("CheckFileHash:The Download Mission is not successed."));
 	}
 	return result;
 }
@@ -256,7 +252,7 @@ void UDownloadProxy::OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSen
 	if (EHttpRequestStatus::Processing != RequestPtr->GetStatus())
 	{
 #if WITH_LOG
-		UE_LOG(GameUpdaterLog, Log, TEXT("OnDownloadProcess:Request Status is %d,is not processing."), (int32)RequestPtr->GetStatus());
+		UE_LOG(DownloadTookitLog, Log, TEXT("OnDownloadProcess:Request Status is %d,is not processing."), (int32)RequestPtr->GetStatus());
 #endif
 		return;
 	}
@@ -273,7 +269,7 @@ void UDownloadProxy::OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSen
 
 //#if WITH_LOG
 //	FString Log = FString::Printf(TEXT("\n-------------\nTotalDownloadByte:%d\nLastRequestedTotalByte:%d\nCurrentRequestTotalLength:%d\nPaddingData:%x\nPaddingLength:%d\n------------\n"), TotalDownloadedByte, LastRequestedTotalByte, CurrentRequestTotalLength,PaddingData, PaddingLength);
-//	UE_LOG(GameUpdaterLog, Log, TEXT("%s"), *Log);
+//	UE_LOG(DownloadTookitLog, Log, TEXT("%s"), *Log);
 //#endif
 
 	if (Status != EDownloadStatus::Paused && PaddingLength > 0)
@@ -285,7 +281,7 @@ void UDownloadProxy::OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSen
 			TotalDownloadedByte += PaddingLength;
 		}
 #if WITH_LOG
-		UE_LOG(GameUpdaterLog, Log, TEXT("OnDownloadProcess:PaddingLength is %d,Toltal Downloaded Byte is %d,Last Recently is %dbyte."), PaddingLength, TotalDownloadedByte, LastRequestedTotalByte);
+		UE_LOG(DownloadTookitLog, Log, TEXT("OnDownloadProcess:PaddingLength is %d,Toltal Downloaded Byte is %d,Last Recently is %dbyte."), PaddingLength, TotalDownloadedByte, LastRequestedTotalByte);
 #endif
 	}
 }
@@ -307,10 +303,10 @@ void UDownloadProxy::OnDownloadHeaderReceived(FHttpRequestPtr RequestPtr, const 
 //		else
 //		{
 //#if WITH_LOG
-//			UE_LOG(GameUpdaterLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(HEAD:%d,GET:%d)"),InternalDownloadFileInfo.Size, ReceiveLength);
-//			UE_LOG(GameUpdaterLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(Slice:%d,GET:%d)"), SliceByteSize, ReceiveLength);
-//			UE_LOG(GameUpdaterLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(SliceTotal:%d,GET:%d)"), (SliceByteSize*SliceCount), ReceiveLength);
-//			UE_LOG(GameUpdaterLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(Total-downloaded:%d,GET:%d)"), (InternalDownloadFileInfo.Size - TotalDownloadedByte), ReceiveLength);
+//			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(HEAD:%d,GET:%d)"),InternalDownloadFileInfo.Size, ReceiveLength);
+//			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(Slice:%d,GET:%d)"), SliceByteSize, ReceiveLength);
+//			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(SliceTotal:%d,GET:%d)"), (SliceByteSize*SliceCount), ReceiveLength);
+//			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(Total-downloaded:%d,GET:%d)"), (InternalDownloadFileInfo.Size - TotalDownloadedByte), ReceiveLength);
 //#endif
 //		}
 	}
@@ -319,12 +315,12 @@ void UDownloadProxy::OnDownloadHeaderReceived(FHttpRequestPtr RequestPtr, const 
 void UDownloadProxy::OnDownloadComplete(FHttpRequestPtr RequestPtr, FHttpResponsePtr ResponsePtr, bool bConnectedSuccessfully)
 {
 #if WITH_LOG
-	UE_LOG(GameUpdaterLog, Warning, TEXT("OnDownloadComplete:Http Request is %s"), bConnectedSuccessfully ? TEXT("True") : TEXT("false"));
+	UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadComplete:Http Request is %s"), bConnectedSuccessfully ? TEXT("True") : TEXT("false"));
 #endif
 	
 	if (Status != EDownloadStatus::Downloading)
 	{
-		UE_LOG(GameUpdaterLog, Warning, TEXT("OnDownloadComplete:Current status is not downloading"));
+		UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadComplete:Current status is not downloading"));
 		return;
 	}
 	if (TickDelegateHandle.IsValid())
@@ -344,12 +340,12 @@ void UDownloadProxy::OnDownloadComplete(FHttpRequestPtr RequestPtr, FHttpRespons
 
 #if WITH_LOG
 		if (RequestPtr.IsValid())
-			UE_LOG(GameUpdaterLog, Warning, TEXT("OnDownloadComplete:Http Request Status is %d"), (int32)RequestPtr->GetStatus());
+			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadComplete:Http Request Status is %d"), (int32)RequestPtr->GetStatus());
 		if (RequestPtr.IsValid() && RequestPtr->GetResponse().IsValid())
-			UE_LOG(GameUpdaterLog, Warning, TEXT("OnDownloadComplete:Request Response code is %d."), RequestPtr->GetResponse()->GetResponseCode());
+			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadComplete:Request Response code is %d."), RequestPtr->GetResponse()->GetResponseCode());
 #endif
 	}
-	UE_LOG(GameUpdaterLog, Log, TEXT("OnDownloadComplete:TotalDownloadedByte is %d,FileTotalSize is %d"), TotalDownloadedByte,InternalDownloadFileInfo.Size);
+	UE_LOG(DownloadTookitLog, Log, TEXT("OnDownloadComplete:TotalDownloadedByte is %d,FileTotalSize is %d"), TotalDownloadedByte,InternalDownloadFileInfo.Size);
 	if (bDownloadSuccessd && bUseSlice && TotalDownloadedByte < InternalDownloadFileInfo.Size)
 	{
 		++SliceCount;
@@ -357,14 +353,14 @@ void UDownloadProxy::OnDownloadComplete(FHttpRequestPtr RequestPtr, FHttpRespons
 		SliceRange.BeginPosition = TotalDownloadedByte;
 		SliceRange.EndPosition = (TotalDownloadedByte + SliceByteSize) < InternalDownloadFileInfo.Size ? (TotalDownloadedByte + SliceByteSize -1) : (InternalDownloadFileInfo.Size - 1);
 		bool bRequestSuccess = DoDownloadRequest(InternalDownloadFileInfo, SliceRange);
-		UE_LOG(GameUpdaterLog, Log, TEXT("OnDownloadComplete:Request Next Slice Content %s,count is %d."),bRequestSuccess?TEXT("Success"):TEXT("Faild"),SliceCount);
+		UE_LOG(DownloadTookitLog, Log, TEXT("OnDownloadComplete:Request Next Slice Content %s,count is %d."),bRequestSuccess?TEXT("Success"):TEXT("Faild"),SliceCount);
 
 		return;
 	}
 	
 	Status = bDownloadSuccessd ? EDownloadStatus::Succeeded : EDownloadStatus::Failed;
 #if WITH_LOG
-		UE_LOG(GameUpdaterLog, Warning, TEXT("OnDownloadComplete:Download Mission %s."), bDownloadSuccessd ? TEXT("Successfuly"):TEXT("Faild"));
+		UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadComplete:Download Mission %s."), bDownloadSuccessd ? TEXT("Successfuly"):TEXT("Faild"));
 #endif
 	if (bDownloadSuccessd)
 	{
@@ -372,10 +368,10 @@ void UDownloadProxy::OnDownloadComplete(FHttpRequestPtr RequestPtr, FHttpRespons
 		MD5_Final(Digest, &Md5CTX);
 		ANSICHAR md5string[33];
 		for (int i = 0; i < 16; ++i)
-			std::sprintf(&md5string[i * 2], "%02x", (unsigned int)Digest[i]);
+			TCString<ANSICHAR>::Sprintf(&md5string[i * 2], "%02x", (unsigned int)Digest[i]);
 
 		InternalDownloadFileInfo.HASH = ANSI_TO_TCHAR(md5string);
-		UE_LOG(GameUpdaterLog, Warning, TEXT("OnDownloadComplete:Hash calc result is %s"), *InternalDownloadFileInfo.HASH);
+		UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadComplete:Hash calc result is %s"), *InternalDownloadFileInfo.HASH);
 	}
 	DownloadSpeed = 0;
 	OnDownloadCompleteDyMultiDlg.Broadcast(this, bDownloadSuccessd);
@@ -398,14 +394,14 @@ void UDownloadProxy::PreRequestHeadInfo(const FDownloadFile& InDownloadFile,bool
 	HttpHeadRequest->SetVerb(TEXT("HEAD"));
 	if (HttpHeadRequest->ProcessRequest())
 	{
-		UE_LOG(GameUpdaterLog, Log, TEXT("Request Head."));
+		UE_LOG(DownloadTookitLog, Log, TEXT("Request Head."));
 	}
 }
 
 void UDownloadProxy::OnRequestHeadHeaderReceived(FHttpRequestPtr RequestPtr, const FString& InHeaderName, const FString& InNewHeaderValue)
 {
 #if WITH_LOG
-	UE_LOG(GameUpdaterLog, Log, TEXT("OnRequestHeadHeaderReceived::Header Name:%s\tHeaderValue:%s"),*InHeaderName,*InNewHeaderValue);
+	UE_LOG(DownloadTookitLog, Log, TEXT("OnRequestHeadHeaderReceived::Header Name:%s\tHeaderValue:%s"),*InHeaderName,*InNewHeaderValue);
 #endif
 	if (InHeaderName.Equals(TEXT("Content-Length")))
 	{
@@ -415,7 +411,7 @@ void UDownloadProxy::OnRequestHeadHeaderReceived(FHttpRequestPtr RequestPtr, con
 
 void UDownloadProxy::OnRequestHeadComplete(FHttpRequestPtr RequestPtr, FHttpResponsePtr ResponsePtr, bool bConnectedSuccessfully, bool bAutoDownload)
 {
-	UE_LOG(GameUpdaterLog, Log, TEXT("OnRequestHeadComplete"));
+	UE_LOG(DownloadTookitLog, Log, TEXT("OnRequestHeadComplete"));
 	bool bHttpRequestSuccessed = RequestPtr.IsValid() && RequestPtr->GetStatus() == EHttpRequestStatus::Succeeded;
 	bool bResponseSuccessd = RequestPtr.IsValid() && RequestPtr->GetResponse().IsValid() && (RequestPtr->GetResponse()->GetResponseCode() >= 200 && RequestPtr->GetResponse()->GetResponseCode() < 300);
 	bool bDownloadSuccessd = bConnectedSuccessfully && bHttpRequestSuccessed && bResponseSuccessd;
@@ -429,7 +425,7 @@ void UDownloadProxy::OnRequestHeadComplete(FHttpRequestPtr RequestPtr, FHttpResp
 			{
 				bool bDeleted = FPlatformFileManager::Get().GetPlatformFile().DeleteFile(*InternalDownloadFileInfo.SavePath);
 
-				UE_LOG(GameUpdaterLog, Warning, TEXT("OnRequestHeadComplete: Delete Exists File %s."), bDeleted ? TEXT("Successfuly") : TEXT("Faild"));
+				UE_LOG(DownloadTookitLog, Warning, TEXT("OnRequestHeadComplete: Delete Exists File %s."), bDeleted ? TEXT("Successfuly") : TEXT("Faild"));
 				if (!bDeleted)
 					return;
 			}
@@ -457,7 +453,7 @@ void UDownloadProxy::OnRequestHeadComplete(FHttpRequestPtr RequestPtr, FHttpResp
 	}
 
 #if WITH_LOG
-	UE_LOG(GameUpdaterLog, Log, TEXT("OnRequestHeadComplete: Request Head %s."),bDownloadSuccessd?TEXT("Successfuly"):TEXT("Faild.Please check URL or Network connection."));
+	UE_LOG(DownloadTookitLog, Log, TEXT("OnRequestHeadComplete: Request Head %s."),bDownloadSuccessd?TEXT("Successfuly"):TEXT("Faild.Please check URL or Network connection."));
 #endif
 }
 
@@ -471,7 +467,7 @@ bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, cons
 	bool bDoStatus = false;
 	if (InRange.EndPosition <= InRange.BeginPosition)
 	{
-		UE_LOG(GameUpdaterLog, Error, TEXT("DoDownloadRequest:Range EndPosition(%d) less or equal BeginPosition(%d)"),InRange.EndPosition,InRange.BeginPosition);
+		UE_LOG(DownloadTookitLog, Error, TEXT("DoDownloadRequest:Range EndPosition(%d) less or equal BeginPosition(%d)"),InRange.EndPosition,InRange.BeginPosition);
 		return false;
 	}
 	LastRequestedTotalByte = TotalDownloadedByte;
@@ -483,7 +479,7 @@ bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, cons
 	HttpRequest->SetVerb(TEXT("GET"));
 
 	FString RangeArgs = TEXT("bytes=") + FString::FromInt(InRange.BeginPosition) + TEXT("-") + FString::FromInt(InRange.EndPosition);
-	UE_LOG(GameUpdaterLog, Log, TEXT("DoDownloadRequest:RangeArgs is %s"), *RangeArgs);
+	UE_LOG(DownloadTookitLog, Log, TEXT("DoDownloadRequest:RangeArgs is %s"), *RangeArgs);
 
 	HttpRequest->SetHeader(TEXT("Range"), RangeArgs);
 	if (HttpRequest->ProcessRequest())
@@ -494,7 +490,7 @@ bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, cons
 		ResponseDataArray.Reserve(ReserveSize);
 
 #if WITH_LOG
-		UE_LOG(GameUpdaterLog, Warning, TEXT("Downloading"));
+		UE_LOG(DownloadTookitLog, Warning, TEXT("Downloading"));
 #endif
 		TickDelegateHandle = FTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UDownloadProxy::Tick));
 		bDoStatus = true;
