@@ -17,7 +17,7 @@
 #include "HAL/IPlatformFileModule.h"
 
 #if HACK_HTTP_LOG_GETCONTENT_WARNING
-static class FHackHttpResponse* HackCurlResponse(IHttpResponse* InCurlHttpResponse);
+static class TArray<uint8>& HackCurlResponse(IHttpResponse* InCurlHttpResponse);
 #endif
 static TArray<uint8>& GetResponseContentData(FHttpResponsePtr InHttpResponse);
 static FString GetFileNameByURL(const FString& InURL);
@@ -499,53 +499,74 @@ bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, cons
 	return bDoStatus;
 }
 
-#if HACK_HTTP_LOG_GETCONTENT_WARNING
-/**
- * Hack Curl implementation of an HTTP response
- */
-class FHackHttpResponse : public IHttpResponse
-{
-public:
-	/** Request that owns this response */
-	void* Request;
+#if HACK_HTTP_LOG_GETCONTENT_WARNING 
+	#if !PLATFORM_APPLE
+		/**
+		 * Hack Curl implementation of an HTTP response
+		 */
+		class FHackCurlHttpResponse : public IHttpResponse
+		{
+		public:
+			/** Request that owns this response */
+			void* Request;
 
-	/** BYTE array to fill in as the response is read via didReceiveData */
-	TArray<uint8> Payload;
-	/** Caches how many bytes of the response we've read so far */
-	FThreadSafeCounter TotalBytesRead;
-	/** Cached key/value header pairs. Parsed once request completes. Only accessible on the game thread. */
-	TMap<FString, FString> Headers;
-	/** Newly received headers we need to inform listeners about */
-	TQueue<TPair<FString, FString>> NewlyReceivedHeaders;
-	/** Cached code from completed response */
-	int32 HttpCode;
-	/** Cached content length from completed response */
-	int32 ContentLength;
-	/** True when the response has finished async processing */
-	int32 volatile bIsReady;
-	/** True if the response was successfully received/processed */
-	int32 volatile bSucceeded;
-};
+			/** BYTE array to fill in as the response is read via didReceiveData */
+			TArray<uint8> Payload;
+			/** Caches how many bytes of the response we've read so far */
+			FThreadSafeCounter TotalBytesRead;
+			/** Cached key/value header pairs. Parsed once request completes. Only accessible on the game thread. */
+			TMap<FString, FString> Headers;
+			/** Newly received headers we need to inform listeners about */
+			TQueue<TPair<FString, FString>> NewlyReceivedHeaders;
+			/** Cached code from completed response */
+			int32 HttpCode;
+			/** Cached content length from completed response */
+			int32 ContentLength;
+			/** True when the response has finished async processing */
+			int32 volatile bIsReady;
+			/** True if the response was successfully received/processed */
+			int32 volatile bSucceeded;
+		};
 
+	#else
+		/**
+		 * Apple implementation of an Http response
+		 */
+		class FHackAppleHttpResponse : public IHttpResponse
+		{
+			// This is the NSHTTPURLResponse, all our functionality will deal with.
+			void* ResponseWrapper;
 
-static FHackHttpResponse* HackCurlResponse(IHttpResponse* InCurlHttpResponse)
-{
-	union HackCurlResponseUnion {
-		IHttpResponse* Origin;
-		FHackHttpResponse* Target;
-	};
+			/** Request that owns this response */
+			void* Request;
 
-	HackCurlResponseUnion Hack;
-	Hack.Origin = InCurlHttpResponse;
-	return Hack.Target;
-}
+			/** BYTE array to fill in as the response is read via didReceiveData */
+			mutable TArray<uint8> Payload;
+		}
+	#endif
+
+	static TArray<uint8>& HackCurlResponsePayload(IHttpResponse* InCurlHttpResponse)
+	{
+		union HackHttpResponseUnion {
+			IHttpResponse* Origin;
+#if PLATFORM_APPLE
+			FHackAppleHttpResponse* Target;
+#else
+			FHackCurlHttpResponse* Target;
+#endif
+		};
+
+		HackHttpResponseUnion Hack;
+		Hack.Origin = InCurlHttpResponse;
+		return Hack.Target->Payload;
+	}
 #endif
 
 
 static TArray<uint8>& GetResponseContentData(FHttpResponsePtr InHttpResponse)
 {
 #if HACK_HTTP_LOG_GETCONTENT_WARNING
-	TArray<uint8>& ResponseDataArray = HackCurlResponse(InHttpResponse.Get())->Payload;
+	TArray<uint8>& ResponseDataArray = HackCurlResponsePayload(InHttpResponse.Get());
 #else
 	TArray<uint8>& ResponseDataArray = const_cast<TArray<uint8>&>(InHttpResponse->GetResponse()->GetContent());
 #endif
