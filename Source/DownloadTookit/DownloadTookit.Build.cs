@@ -57,5 +57,7 @@ public class DownloadTookit : ModuleRules
             "WITH_LOG=0",
             "HACK_HTTP_LOG_GETCONTENT_WARNING=1"
         });
-	}
+
+        OptimizeCode = CodeOptimization.InShippingBuildsOnly;
+    }
 }
