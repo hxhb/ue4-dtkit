@@ -258,8 +258,22 @@ void UDownloadProxy::OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSen
 	}
 	if (EDownloadStatus::Downloading != Status)
 	{
-		return;
+		int32 ReceiveLength = RequestPtr->GetResponse()->GetContentLength();
+		if (InternalDownloadFileInfo.Size == ReceiveLength || // request full file
+			// request slice
+			(bUseSlice && (SliceByteSize == ReceiveLength || ReceiveLength == (InternalDownloadFileInfo.Size - (SliceByteSize*SliceCount)))) ||
+			// resume request
+			(ReceiveLength == (InternalDownloadFileInfo.Size - TotalDownloadedByte))
+			)
+		{
+			Status = EDownloadStatus::Downloading;
+		}
+		else
+		{
+			return;
+		}
 	}
+
 
 	TArray<uint8>& ResponseDataArray = GetResponseContentData(HttpRequest->GetResponse());
 	uint32 CurrentRequestTotalLength = ResponseDataArray.Num();
@@ -286,31 +300,31 @@ void UDownloadProxy::OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSen
 	}
 }
 
-void UDownloadProxy::OnDownloadHeaderReceived(FHttpRequestPtr RequestPtr, const FString& InHeaderName, const FString& InNewHeaderValue)
-{
-	if (InHeaderName.Equals(TEXT("Content-Length")))
-	{
-		int32 ReceiveLength = UKismetStringLibrary::Conv_StringToInt(InNewHeaderValue);
-		if (InternalDownloadFileInfo.Size == ReceiveLength || // request full file
-			// request slice
-			(bUseSlice && (SliceByteSize == ReceiveLength || ReceiveLength == (InternalDownloadFileInfo.Size - (SliceByteSize*SliceCount)))) ||
-			// resume request
-			(ReceiveLength == (InternalDownloadFileInfo.Size-TotalDownloadedByte))
-			)
-		{
-			Status = EDownloadStatus::Downloading;
-		}
-//		else
+//void UDownloadProxy::OnDownloadHeaderReceived(FHttpRequestPtr RequestPtr, const FString& InHeaderName, const FString& InNewHeaderValue)
+//{
+//	if (InHeaderName.Equals(TEXT("Content-Length")))
+//	{
+//		int32 ReceiveLength = UKismetStringLibrary::Conv_StringToInt(InNewHeaderValue);
+//		if (InternalDownloadFileInfo.Size == ReceiveLength || // request full file
+//			// request slice
+//			(bUseSlice && (SliceByteSize == ReceiveLength || ReceiveLength == (InternalDownloadFileInfo.Size - (SliceByteSize*SliceCount)))) ||
+//			// resume request
+//			(ReceiveLength == (InternalDownloadFileInfo.Size-TotalDownloadedByte))
+//			)
 //		{
-//#if WITH_LOG
-//			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(HEAD:%d,GET:%d)"),InternalDownloadFileInfo.Size, ReceiveLength);
-//			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(Slice:%d,GET:%d)"), SliceByteSize, ReceiveLength);
-//			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(SliceTotal:%d,GET:%d)"), (SliceByteSize*SliceCount), ReceiveLength);
-//			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(Total-downloaded:%d,GET:%d)"), (InternalDownloadFileInfo.Size - TotalDownloadedByte), ReceiveLength);
-//#endif
+//			Status = EDownloadStatus::Downloading;
 //		}
-	}
-}
+////		else
+////		{
+////#if WITH_LOG
+////			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(HEAD:%d,GET:%d)"),InternalDownloadFileInfo.Size, ReceiveLength);
+////			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(Slice:%d,GET:%d)"), SliceByteSize, ReceiveLength);
+////			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(SliceTotal:%d,GET:%d)"), (SliceByteSize*SliceCount), ReceiveLength);
+////			UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadHeaderReceived:HEAD and GET Request have different Content-Length(Total-downloaded:%d,GET:%d)"), (InternalDownloadFileInfo.Size - TotalDownloadedByte), ReceiveLength);
+////#endif
+////		}
+//	}
+//}
 
 void UDownloadProxy::OnDownloadComplete(FHttpRequestPtr RequestPtr, FHttpResponsePtr ResponsePtr, bool bConnectedSuccessfully)
 {
@@ -473,7 +487,7 @@ bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, cons
 	LastRequestedTotalByte = TotalDownloadedByte;
 	HttpRequest = FHttpModule::Get().CreateRequest();
 	HttpRequest->OnRequestProgress().BindUObject(this, &UDownloadProxy::OnDownloadProcess);
-	HttpRequest->OnHeaderReceived().BindUObject(this, &UDownloadProxy::OnDownloadHeaderReceived);
+	// HttpRequest->OnHeaderReceived().BindUObject(this, &UDownloadProxy::OnDownloadHeaderReceived);
 	HttpRequest->OnProcessRequestComplete().BindUObject(this, &UDownloadProxy::OnDownloadComplete);
 	HttpRequest->SetURL(InternalDownloadFileInfo.URL);
 	HttpRequest->SetVerb(TEXT("GET"));
@@ -545,7 +559,7 @@ bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, cons
 		}
 	#endif
 
-	static TArray<uint8>& HackCurlResponsePayload(IHttpResponse* InCurlHttpResponse)
+	static TArray<uint8>& HackHttpResponsePayload(IHttpResponse* InCurlHttpResponse)
 	{
 		union HackHttpResponseUnion {
 			IHttpResponse* Origin;
@@ -566,7 +580,7 @@ bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, cons
 static TArray<uint8>& GetResponseContentData(FHttpResponsePtr InHttpResponse)
 {
 #if HACK_HTTP_LOG_GETCONTENT_WARNING
-	TArray<uint8>& ResponseDataArray = HackCurlResponsePayload(InHttpResponse.Get());
+	TArray<uint8>& ResponseDataArray = HackHttpResponsePayload(InHttpResponse.Get());
 #else
 	TArray<uint8>& ResponseDataArray = const_cast<TArray<uint8>&>(InHttpResponse->GetResponse()->GetContent());
 #endif

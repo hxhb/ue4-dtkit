@@ -102,7 +102,7 @@ protected:
 	bool DoDownloadRequest(const FDownloadFile& InDownloadFile, const FDownloadRange& InRange);
 	void OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSent, int32 byteReceive);
 	void OnDownloadComplete(FHttpRequestPtr RequestPtr, FHttpResponsePtr ResponsePtr, bool bConnectedSuccessfully);
-	void OnDownloadHeaderReceived(FHttpRequestPtr RequestPtr, const FString& InHeaderName, const FString& InNewHeaderValue);
+	// void OnDownloadHeaderReceived(FHttpRequestPtr RequestPtr, const FString& InHeaderName, const FString& InNewHeaderValue);
 	// request head get the file size
 	void PreRequestHeadInfo(const FDownloadFile& InDownloadFile, bool bAutoDownload=true);
 	void OnRequestHeadHeaderReceived(FHttpRequestPtr RequestPtr, const FString& InHeaderName, const FString& InNewHeaderValue);
