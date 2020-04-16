@@ -37,7 +37,7 @@ void UDownloadProxy::RequestDownload(const FString& InURL, const FString& InSave
 #endif
 	if (bInForceOpt || ((!HttpRequest.IsValid() || HttpRequest->GetStatus() != EHttpRequestStatus::Processing) && (Status != EDownloadStatus::Downloading)))
 	{
-		Reset(); // reset all member data to default
+		// Reset(); // reset all member data to default
 
 		FDownloadFile MakeDownloadFileInfo;
 		if (bInSliceOpt)
