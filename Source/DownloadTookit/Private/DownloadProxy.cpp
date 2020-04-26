@@ -137,6 +137,7 @@ void UDownloadProxy::Cancel()
 		UE_LOG(DownloadTookitLog, Warning, TEXT("Download Cancel"));
 #endif
 		OnDownloadCanceledDyMultiDlg.Broadcast(this);
+		Reset();
 	}
 }
 
@@ -543,6 +544,9 @@ bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, cons
 		};
 
 	#else
+		#if WITH_SSL
+		#include "Ssl.h"
+		#endif
 		/**
 		 * Apple Response Wrapper which will be used for it's delegates to receive responses.
 		 */
@@ -586,6 +590,7 @@ bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, cons
 		 */
 		class FHackAppleHttpResponse : public IHttpResponse
 		{
+		public:
 			// This is the NSHTTPURLResponse, all our functionality will deal with.
 			FHttpResponseAppleWrapper* ResponseWrapper;
 
@@ -594,7 +599,7 @@ bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, cons
 
 			/** BYTE array to fill in as the response is read via didReceiveData */
 			mutable TArray<uint8> Payload;
-		}
+		};
 	#endif
 
 	static TArray<uint8>& HackHttpResponsePayload(IHttpResponse* InCurlHttpResponse)

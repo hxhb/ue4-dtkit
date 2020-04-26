@@ -28,6 +28,7 @@ public class DownloadTookit : ModuleRules
 			{
 				"Core",
                 "HTTP",
+                "SSL",
                 "CS_OpenSSL"
 				// ... add other public dependencies that you statically link with here ...
 			}
