@@ -544,12 +544,50 @@ bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, cons
 
 	#else
 		/**
+		 * Apple Response Wrapper which will be used for it's delegates to receive responses.
+		 */
+		@interface FHttpResponseAppleWrapper : NSObject
+		{
+			/** Holds the payload as we receive it. */
+			TArray<uint8> Payload;
+		}
+		/** A handle for the response */
+		@property(retain) NSHTTPURLResponse* Response;
+		/** Flag whether the response is ready */
+		@property BOOL bIsReady;
+		/** When the response is complete, indicates whether the response was received without error. */
+		@property BOOL bHadError;
+		/** When the response is complete, indicates whether the response failed with an error specific to connecting to the host. */
+		@property BOOL bIsHostConnectionFailure;
+		/** The total number of bytes written out during the request/response */
+		@property int32 BytesWritten;
+
+		/** Delegate called when we send data. See Apple docs for when/how this should be used. */
+		-(void)connection:(NSURLConnection *)connection didSendBodyData : (NSInteger)bytesWritten totalBytesWritten : (NSInteger)totalBytesWritten totalBytesExpectedToWrite : (NSInteger)totalBytesExpectedToWrite;
+		/** Delegate called with we receive a response. See Apple docs for when/how this should be used. */
+		-(void)connection:(NSURLConnection *)connection didReceiveResponse : (NSURLResponse *)response;
+		/** Delegate called with we receive data. See Apple docs for when/how this should be used. */
+		-(void)connection:(NSURLConnection *)connection didReceiveData : (NSData *)data;
+		/** Delegate called with we complete with an error. See Apple docs for when/how this should be used. */
+		-(void)connection:(NSURLConnection *)connection didFailWithError : (NSError *)error;
+		/** Delegate called with we complete successfully. See Apple docs for when/how this should be used. */
+		-(void)connectionDidFinishLoading:(NSURLConnection *)connection;
+
+		#if WITH_SSL
+		/** Delegate called when the connection is about to validate an auth challenge. We only care about server trust. See Apple docs for when/how this should be used. */
+		- (void)connection:(NSURLConnection *)connection willSendRequestForAuthenticationChallenge : (NSURLAuthenticationChallenge *)challenge;
+		#endif
+
+		- (TArray<uint8>&)getPayload;
+		-(int32)getBytesWritten;
+		@end
+		/**
 		 * Apple implementation of an Http response
 		 */
 		class FHackAppleHttpResponse : public IHttpResponse
 		{
 			// This is the NSHTTPURLResponse, all our functionality will deal with.
-			void* ResponseWrapper;
+			FHttpResponseAppleWrapper* ResponseWrapper;
 
 			/** Request that owns this response */
 			void* Request;
@@ -572,7 +610,13 @@ bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, cons
 
 		HackHttpResponseUnion Hack;
 		Hack.Origin = InCurlHttpResponse;
-		return Hack.Target->Payload;
+#if PLATFORM_APPLE
+		FHttpResponseAppleWrapper* ResponseWrapper = Hack.Target->ResponseWrapper;
+		TArray<uint8>& Payload = [ResponseWrapper getPayload];
+#else
+		TArray<uint8>& Payload = Hack.Target->Payload;
+#endif
+		return Payload;
 	}
 #endif
 
