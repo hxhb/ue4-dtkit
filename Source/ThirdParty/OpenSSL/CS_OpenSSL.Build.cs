@@ -86,5 +86,8 @@ public class CS_OpenSSL : ModuleRules
             PublicAdditionalLibraries.Add(LibraryPath + "/libssl.a");
             PublicAdditionalLibraries.Add(LibraryPath + "/libcrypto.a");
         }
+
+        PublicIncludePaths.Add(Path.Combine(ModuleDirectory,"Source"));
+
     }
 }

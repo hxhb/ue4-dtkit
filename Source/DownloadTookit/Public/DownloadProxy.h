@@ -4,6 +4,7 @@
 
 // project header
 #include "DownloadFile.h"
+#include "MD5Wrapper.hpp"
 
 // engine header
 #include "openssl/md5.h"
@@ -118,7 +119,7 @@ private:
 	int32 LastRequestedTotalByte;
 	int32 DownloadSpeed;
 	float DeltaTime;
-	MD5_CTX Md5CTX;
+	FMD5Wrapper Md5Proxy;
 	bool bUseSlice;
 	uint32 SliceCount;
 	int32 SliceByteSize;

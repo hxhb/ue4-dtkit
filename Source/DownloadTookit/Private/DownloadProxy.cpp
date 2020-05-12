@@ -153,7 +153,7 @@ void UDownloadProxy::Reset()
 	LastRequestedTotalByte = 0;
 	DownloadSpeed = 0;
 	DeltaTime = 0.f;
-	Md5CTX = MD5_CTX();
+	Md5Proxy.Reset();
 	bUseSlice = false;
 	SliceCount = 0;
 	SliceByteSize = 0;
@@ -291,7 +291,7 @@ void UDownloadProxy::OnDownloadProcess(FHttpRequestPtr RequestPtr, int32 byteSen
 	{
 		if (FFileHelper::SaveArrayToFile(TArrayView<const uint8>(PaddingData, PaddingLength),*InternalDownloadFileInfo.SavePath, &IFileManager::Get(), EFileWrite::FILEWRITE_Append | EFileWrite::FILEWRITE_AllowRead | EFileWrite::FILEWRITE_EvenIfReadOnly))
 		{
-			MD5_Update(&Md5CTX, PaddingData, PaddingLength);
+			Md5Proxy.Update(PaddingData, PaddingLength);
 			DownloadSpeed = PaddingLength;
 			TotalDownloadedByte += PaddingLength;
 		}
@@ -379,13 +379,7 @@ void UDownloadProxy::OnDownloadComplete(FHttpRequestPtr RequestPtr, FHttpRespons
 #endif
 	if (bDownloadSuccessd)
 	{
-		unsigned char Digest[16] = { 0 };
-		MD5_Final(Digest, &Md5CTX);
-		ANSICHAR md5string[33];
-		for (int i = 0; i < 16; ++i)
-			TCString<ANSICHAR>::Sprintf(&md5string[i * 2], "%02x", (unsigned int)Digest[i]);
-
-		InternalDownloadFileInfo.HASH = ANSI_TO_TCHAR(md5string);
+		InternalDownloadFileInfo.HASH = ANSI_TO_TCHAR(Md5Proxy.Final());
 		UE_LOG(DownloadTookitLog, Warning, TEXT("OnDownloadComplete:Hash calc result is %s"), *InternalDownloadFileInfo.HASH);
 	}
 	DownloadSpeed = 0;
@@ -474,7 +468,7 @@ void UDownloadProxy::OnRequestHeadComplete(FHttpRequestPtr RequestPtr, FHttpResp
 
 void UDownloadProxy::PreDownloadRequest()
 {
-	MD5_Init(&Md5CTX);
+	Md5Proxy.Reset();
 }
 
 bool UDownloadProxy::DoDownloadRequest(const FDownloadFile& InDownloadFile, const FDownloadRange& InRange)
