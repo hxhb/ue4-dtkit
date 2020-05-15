@@ -1,7 +1,7 @@
 #pragma once
 #include "openssl/md5.h"
 #include <cstring>
-
+#include <cstdio>
 #pragma warning(disable:4996)
 struct FMD5Wrapper
 {

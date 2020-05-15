@@ -48,7 +48,7 @@ void UDownloadProxy::RequestDownload(const FString& InURL, const FString& InSave
 		}
 		
 		MakeDownloadFileInfo.URL = InURL;
-		MakeDownloadFileInfo.Name = GetFileNameByURL(MakeDownloadFileInfo.URL);
+		MakeDownloadFileInfo.Name = FGenericPlatformHttp::UrlDecode(GetFileNameByURL(MakeDownloadFileInfo.URL));
 		if (!InSavePathOpt.IsEmpty())
 		{
 			MakeDownloadFileInfo.SavePath = InSavePathOpt;
