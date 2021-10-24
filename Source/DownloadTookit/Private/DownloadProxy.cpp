@@ -396,7 +396,7 @@ void UDownloadProxy::PreRequestHeadInfo(const FDownloadFile& InDownloadFile,bool
 	}
 	InternalDownloadFileInfo = PassInDownloadFileInfo;
 
-	TSharedRef<IHttpRequest> HttpHeadRequest = FHttpModule::Get().CreateRequest();
+	TSharedRef<IHttpRequest,ESPMode::ThreadSafe> HttpHeadRequest = FHttpModule::Get().CreateRequest();
 	HttpHeadRequest->OnHeaderReceived().BindUObject(this, &UDownloadProxy::OnRequestHeadHeaderReceived);
 	HttpHeadRequest->OnProcessRequestComplete().BindUObject(this, &UDownloadProxy::OnRequestHeadComplete,bAutoDownload);
 	HttpHeadRequest->SetURL(InternalDownloadFileInfo.URL);

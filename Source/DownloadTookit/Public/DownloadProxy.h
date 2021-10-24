@@ -111,7 +111,7 @@ protected:
 
 private:
 	FDelegateHandle TickDelegateHandle;
-	TSharedPtr<IHttpRequest> HttpRequest;
+	TSharedPtr<IHttpRequest,ESPMode::ThreadSafe> HttpRequest;
 	FDownloadFile PassInDownloadFileInfo;
 	FDownloadFile InternalDownloadFileInfo;
 	EDownloadStatus Status;
